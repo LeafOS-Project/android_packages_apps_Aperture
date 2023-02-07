@@ -1,13 +1,11 @@
 /*
- * SPDX-FileCopyrightText: 2022 The LineageOS Project
+ * SPDX-FileCopyrightText: 2022-2023 The LineageOS Project
  * SPDX-License-Identifier: Apache-2.0
  */
 
 package org.lineageos.aperture.utils
 
 import android.content.Context
-import android.icu.text.DecimalFormat
-import android.icu.text.DecimalFormatSymbols
 import android.hardware.camera2.CameraManager as Camera2CameraManager
 import androidx.camera.extensions.ExtensionsManager
 import androidx.camera.lifecycle.ProcessCameraProvider
@@ -16,8 +14,6 @@ import androidx.camera.view.LifecycleCameraController
 import org.lineageos.aperture.R
 import org.lineageos.aperture.getBoolean
 import org.lineageos.aperture.getStringArray
-import java.math.RoundingMode
-import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -83,6 +79,29 @@ class CameraManager(context: Context) {
     private val ignoreLogicalAuxCameras by lazy {
         context.resources.getBoolean(context, R.bool.config_ignoreLogicalAuxCameras)
     }
+    private val logicalZoomRatios by lazy {
+        mutableMapOf<String, MutableMap<Float, Float>>().apply {
+            context.resources.getStringArray(context, R.array.config_logicalZoomRatios).let {
+                if (it.size % 3 != 0) {
+                    // Invalid configuration
+                    return@apply
+                }
+
+                for (i in it.indices step 3) {
+                    val cameraId = it[i]
+                    val approximateZoomRatio = it[i + 1].toFloat()
+                    val exactZoomRatio = it[i + 2].toFloat()
+
+                    if (!this.containsKey(cameraId)) {
+                        this[cameraId] = mutableMapOf()
+                    }
+                    this[cameraId]!![approximateZoomRatio] = exactZoomRatio
+                }
+            }
+        }.map { a ->
+            a.key to a.value.toMap()
+        }.toMap()
+    }
 
     private val cameras: Map<String, Camera>
         get() = cameraProvider.availableCameraInfos.associate {
@@ -130,6 +149,12 @@ class CameraManager(context: Context) {
 
     fun getAdditionalVideoFramerates(cameraId: String, quality: Quality) =
         additionalVideoConfigurations[cameraId]?.get(quality) ?: listOf()
+
+    fun getLogicalZoomRatios(cameraId: String) = mutableMapOf(1.0f to 1.0f).apply {
+        logicalZoomRatios[cameraId]?.let {
+            putAll(it)
+        }
+    }.toSortedMap()
 
     fun getCameras(
         cameraMode: CameraMode, cameraFacing: CameraFacing,
@@ -215,40 +240,11 @@ class CameraManager(context: Context) {
             return listOf(mainCamera)
         }
 
-        if (mainCamera.isLogical && mainCamera.focalLengths.size >= 2) {
-            // If first camera is logical and it has more focal lengths,
-            // it's very likely that it merges all sensors and handles
-            // them with zoom (e.g. Pixels). Just expose only that
-            return listOf(mainCamera)
-        }
-
         // Get the list of aux cameras
         val auxCameras = facingCameras
             .drop(1)
             .filter { !ignoreLogicalAuxCameras || !it.isLogical }
 
-        // Setup zoom ratio for aux cameras if main cam is a physical camera device
-        if (mainCamera.sensors.size == 1) {
-            val mainSensorViewAngleDegrees = mainCamera.sensors[0].viewAngleDegrees.toFloat()
-
-            for (camera in auxCameras) {
-                // Setup zoom ratio only for physical camera devices
-                if (camera.sensors.size == 1) {
-                    val auxSensor = camera.sensors[0]
-                    camera.intrinsicZoomRatio = roundOffZoomRatio(
-                        mainSensorViewAngleDegrees / auxSensor.viewAngleDegrees
-                    )
-                }
-            }
-        }
-
         return listOf(mainCamera) + auxCameras
-    }
-
-    private fun roundOffZoomRatio(number: Float): Float {
-        val symbols = DecimalFormatSymbols(Locale.US)
-        return DecimalFormat("#.#", symbols).apply {
-            roundingMode = RoundingMode.CEILING.ordinal
-        }.format(number).toFloat()
     }
 }
