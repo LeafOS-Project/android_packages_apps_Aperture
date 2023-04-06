@@ -10,6 +10,7 @@ import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.AnimatedVectorDrawable
@@ -55,6 +56,7 @@ import androidx.camera.view.onPinchToZoom
 import androidx.camera.view.video.AudioConfig
 import androidx.cardview.widget.CardView
 import androidx.constraintlayout.widget.ConstraintLayout
+import androidx.constraintlayout.widget.Group
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat.getInsetsController
 import androidx.core.view.WindowInsetsCompat
@@ -63,6 +65,7 @@ import androidx.core.view.children
 import androidx.core.view.doOnLayout
 import androidx.core.view.isInvisible
 import androidx.core.view.isVisible
+import androidx.core.view.updateLayoutParams
 import androidx.lifecycle.MutableLiveData
 import androidx.preference.PreferenceManager
 import coil.decode.VideoFrameDecoder
@@ -74,31 +77,39 @@ import coil.size.Scale
 import com.google.android.material.button.MaterialButton
 import org.lineageos.aperture.ui.CapturePreviewLayout
 import org.lineageos.aperture.ui.CountDownView
-import org.lineageos.aperture.ui.LocationPermissionsDialog
 import org.lineageos.aperture.ui.GridView
 import org.lineageos.aperture.ui.HorizontalSlider
 import org.lineageos.aperture.ui.LensSelectorLayout
 import org.lineageos.aperture.ui.LevelerView
+import org.lineageos.aperture.ui.LocationPermissionsDialog
 import org.lineageos.aperture.ui.PreviewBlurView
 import org.lineageos.aperture.ui.VerticalSlider
+import org.lineageos.aperture.utils.AssistantIntent
+import org.lineageos.aperture.utils.BroadcastUtils
 import org.lineageos.aperture.utils.Camera
 import org.lineageos.aperture.utils.CameraFacing
 import org.lineageos.aperture.utils.CameraManager
 import org.lineageos.aperture.utils.CameraMode
 import org.lineageos.aperture.utils.CameraSoundsUtils
 import org.lineageos.aperture.utils.CameraState
+import org.lineageos.aperture.utils.ExifUtils
 import org.lineageos.aperture.utils.FlashMode
 import org.lineageos.aperture.utils.Framerate
+import org.lineageos.aperture.utils.GoogleLensUtils
 import org.lineageos.aperture.utils.GridMode
+import org.lineageos.aperture.utils.MediaStoreUtils
 import org.lineageos.aperture.utils.MediaType
 import org.lineageos.aperture.utils.PermissionsUtils
 import org.lineageos.aperture.utils.Rotation
 import org.lineageos.aperture.utils.ShortcutsUtils
-import org.lineageos.aperture.utils.StabilizationMode
 import org.lineageos.aperture.utils.StorageUtils
 import org.lineageos.aperture.utils.TimeUtils
 import org.lineageos.aperture.utils.TimerMode
+import org.lineageos.aperture.utils.VideoStabilizationMode
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.FileNotFoundException
+import java.io.InputStream
 import java.util.concurrent.ExecutorService
 import kotlin.math.abs
 import kotlin.reflect.safeCast
@@ -119,6 +130,7 @@ open class CameraActivity : AppCompatActivity() {
     private val flipCameraButton by lazy { findViewById<ImageButton>(R.id.flipCameraButton) }
     private val galleryButton by lazy { findViewById<ImageView>(R.id.galleryButton) }
     private val galleryButtonCardView by lazy { findViewById<CardView>(R.id.galleryButtonCardView) }
+    private val googleLensButton by lazy { findViewById<ImageButton>(R.id.googleLensButton) }
     private val gridButton by lazy { findViewById<Button>(R.id.gridButton) }
     private val gridView by lazy { findViewById<GridView>(R.id.gridView) }
     private val lensSelectorLayout by lazy { findViewById<LensSelectorLayout>(R.id.lensSelectorLayout) }
@@ -126,7 +138,7 @@ open class CameraActivity : AppCompatActivity() {
     private val micButton by lazy { findViewById<Button>(R.id.micButton) }
     private val photoModeButton by lazy { findViewById<MaterialButton>(R.id.photoModeButton) }
     private val previewBlurView by lazy { findViewById<PreviewBlurView>(R.id.previewBlurView) }
-    private val primaryBarLayout by lazy { findViewById<ConstraintLayout>(R.id.primaryBarLayout) }
+    private val primaryBarLayoutGroupPhoto by lazy { findViewById<Group>(R.id.primaryBarLayoutGroupPhoto) }
     private val proButton by lazy { findViewById<ImageButton>(R.id.proButton) }
     private val qrModeButton by lazy { findViewById<MaterialButton>(R.id.qrModeButton) }
     private val secondaryBottomBarLayout by lazy { findViewById<ConstraintLayout>(R.id.secondaryBottomBarLayout) }
@@ -194,6 +206,7 @@ open class CameraActivity : AppCompatActivity() {
 
     // QR
     private val imageAnalyzer by lazy { QrImageAnalyzer(this) }
+    private val isGoogleLensAvailable by lazy { GoogleLensUtils.isGoogleLensAvailable(this) }
 
     private var viewFinderTouchEvent: MotionEvent? = null
     private val gestureDetector by lazy {
@@ -418,6 +431,10 @@ open class CameraActivity : AppCompatActivity() {
             cameraMode = CameraMode.QR
         },
     )
+    private val assistantIntent
+        get() = AssistantIntent.fromIntent(intent)
+    private val launchedViaVoiceIntent
+        get() = isVoiceInteractionRoot && intent.hasCategory(Intent.CATEGORY_VOICE)
 
     @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -452,6 +469,15 @@ open class CameraActivity : AppCompatActivity() {
         // Handle intent
         intent.action?.let {
             intentActions[it]?.invoke()
+        }
+
+        // Handle assistant intent
+        assistantIntent?.useFrontCamera?.let {
+            initialCameraFacing = if (it) {
+                CameraFacing.FRONT
+            } else {
+                CameraFacing.BACK
+            }
         }
 
         if (cameraManager.internalCamerasSupportingVideoRecoding.isEmpty()) {
@@ -567,6 +593,13 @@ open class CameraActivity : AppCompatActivity() {
 
                     // Hide preview blur
                     previewBlurView.isVisible = false
+
+                    // Issue capture if requested via assistant
+                    if ((launchedViaVoiceIntent || assistantIntent?.cameraOpenOnly != null)
+                        && assistantIntent?.cameraOpenOnly != true
+                    ) {
+                        shutterButton.performClick()
+                    }
                 }
                 else -> {}
             }
@@ -614,6 +647,11 @@ open class CameraActivity : AppCompatActivity() {
         videoModeButton.setOnClickListener { changeCameraMode(CameraMode.VIDEO) }
 
         flipCameraButton.setOnClickListener { flipCamera() }
+        googleLensButton.setOnClickListener {
+            dismissKeyguardAndRun {
+                GoogleLensUtils.launchGoogleLens(this)
+            }
+        }
 
         videoRecordingStateButton.setOnClickListener {
             when (cameraState) {
@@ -669,11 +707,14 @@ open class CameraActivity : AppCompatActivity() {
         }
 
         // Set capture preview callback
-        capturePreviewLayout.onChoiceCallback = { uri ->
-            uri?.let {
-                sendIntentResultAndExit(it)
-            } ?: run {
-                capturePreviewLayout.isVisible = false
+        capturePreviewLayout.onChoiceCallback = { input ->
+            when (input) {
+                null -> {
+                    capturePreviewLayout.isVisible = false
+                }
+                is InputStream,
+                is Uri -> sendIntentResultAndExit(input)
+                else -> throw Exception("Invalid input")
             }
         }
 
@@ -820,12 +861,21 @@ open class CameraActivity : AppCompatActivity() {
         cameraState = CameraState.TAKING_PHOTO
         shutterButton.isEnabled = false
 
+        val photoOutputStream = if (singleCaptureMode) {
+            ByteArrayOutputStream(SINGLE_CAPTURE_PHOTO_BUFFER_INITIAL_SIZE_BYTES)
+        } else {
+            null
+        }
+
         // Create output options object which contains file + metadata
         val outputOptions = StorageUtils.getPhotoMediaStoreOutputOptions(
             contentResolver,
             ImageCapture.Metadata().apply {
-                location = this@CameraActivity.location
-            }
+                if (!singleCaptureMode) {
+                    location = this@CameraActivity.location
+                }
+            },
+            photoOutputStream
         )
 
         // Set up image capture listener, which is triggered after photo has
@@ -854,9 +904,17 @@ open class CameraActivity : AppCompatActivity() {
                     if (!singleCaptureMode) {
                         sharedPreferences.lastSavedUri = output.savedUri
                         tookSomething = true
+                        output.savedUri?.let {
+                            BroadcastUtils.broadcastNewPicture(this@CameraActivity, it)
+                        }
                     } else {
                         output.savedUri?.let {
                             openCapturePreview(it, MediaType.PHOTO)
+                        }
+                        photoOutputStream?.use {
+                            openCapturePreview(
+                                ByteArrayInputStream(photoOutputStream.toByteArray())
+                            )
                         }
                     }
                 }
@@ -877,7 +935,10 @@ open class CameraActivity : AppCompatActivity() {
         cameraState = CameraState.PRE_RECORDING_VIDEO
 
         // Create output options object which contains file + metadata
-        val outputOptions = StorageUtils.getVideoMediaStoreOutputOptions(contentResolver, location)
+        val outputOptions = StorageUtils.getVideoMediaStoreOutputOptions(
+            contentResolver,
+            location.takeUnless { singleCaptureMode }
+        )
 
         // Play shutter sound
         val delayTime = if (cameraSoundsUtils.playStartVideoRecording()) 500L else 0L
@@ -933,6 +994,7 @@ open class CameraActivity : AppCompatActivity() {
                             if (!singleCaptureMode) {
                                 sharedPreferences.lastSavedUri = it.outputResults.outputUri
                                 tookSomething = true
+                                BroadcastUtils.broadcastNewVideo(this, it.outputResults.outputUri)
                             } else {
                                 openCapturePreview(it.outputResults.outputUri, MediaType.VIDEO)
                             }
@@ -1004,6 +1066,7 @@ open class CameraActivity : AppCompatActivity() {
                 if (!supportedVideoQualities.contains(sharedPreferences.videoQuality)) {
                     sharedPreferences.videoQuality = supportedVideoQualities.first()
                 }
+                cameraController.videoCaptureTargetQuality = null // FIXME: video preview restart
                 cameraController.videoCaptureTargetQuality = sharedPreferences.videoQuality
 
                 // Set proper video framerate
@@ -1029,17 +1092,20 @@ open class CameraActivity : AppCompatActivity() {
             CameraMode.QR -> {
                 timerButton.isVisible = false
                 secondaryBottomBarLayout.isVisible = false
-                primaryBarLayout.isVisible = false
+                primaryBarLayoutGroupPhoto.isVisible = false
+                googleLensButton.isVisible = isGoogleLensAvailable
             }
             CameraMode.PHOTO -> {
                 timerButton.isVisible = true
                 secondaryBottomBarLayout.isVisible = true
-                primaryBarLayout.isVisible = true
+                primaryBarLayoutGroupPhoto.isVisible = true
+                googleLensButton.isVisible = false
             }
             CameraMode.VIDEO -> {
                 timerButton.isVisible = true
                 secondaryBottomBarLayout.isVisible = true
-                primaryBarLayout.isVisible = true
+                primaryBarLayoutGroupPhoto.isVisible = true
+                googleLensButton.isVisible = false
             }
         }
 
@@ -1066,15 +1132,14 @@ open class CameraActivity : AppCompatActivity() {
                                 null
                             }
                         )
-                        setStabilizationMode(
-                            (StabilizationMode::getClosestMode)(
-                                when (cameraMode) {
-                                    CameraMode.PHOTO -> sharedPreferences.imageStabilizationMode
-                                    CameraMode.VIDEO -> sharedPreferences.videoStabilizationMode
-                                    CameraMode.QR -> StabilizationMode.OFF
-                                },
-                                camera, cameraMode
-                            )
+                        setVideoStabilizationMode(
+                            if (cameraMode == CameraMode.VIDEO &&
+                                sharedPreferences.videoStabilization
+                            ) {
+                                VideoStabilizationMode.getMode(camera)
+                            } else {
+                                VideoStabilizationMode.OFF
+                            }
                         )
                     }
                     .build()
@@ -1150,7 +1215,7 @@ open class CameraActivity : AppCompatActivity() {
         sharedPreferences.lastCameraMode = cameraMode
 
         // Hide secondary top bar
-        secondaryTopBarLayout.slideDown()
+        secondaryTopBarLayout.isVisible = false
 
         bindCameraUseCases()
     }
@@ -1574,7 +1639,9 @@ open class CameraActivity : AppCompatActivity() {
 
     private fun updateGalleryButton() {
         runOnUiThread {
-            val uri = sharedPreferences.lastSavedUri
+            val uri = sharedPreferences.lastSavedUri?.takeIf {
+                MediaStoreUtils.fileExists(this, it)
+            }
             val keyguardLocked = keyguardManager.isKeyguardLocked
             if (uri != null && (!keyguardLocked || tookSomething)) {
                 galleryButton.load(uri) {
@@ -1684,7 +1751,14 @@ open class CameraActivity : AppCompatActivity() {
 
     private fun openCapturePreview(uri: Uri, mediaType: MediaType) {
         runOnUiThread {
-            capturePreviewLayout.updateUri(uri, mediaType)
+            capturePreviewLayout.updateSource(uri, mediaType)
+            capturePreviewLayout.isVisible = true
+        }
+    }
+
+    private fun openCapturePreview(photoInputStream: InputStream) {
+        runOnUiThread {
+            capturePreviewLayout.updateSource(photoInputStream)
             capturePreviewLayout.isVisible = true
         }
     }
@@ -1693,7 +1767,7 @@ open class CameraActivity : AppCompatActivity() {
      * When the user took a photo or a video and confirmed it, its URI gets sent back to the
      * app that sent the intent and closes the camera.
      */
-    private fun sendIntentResultAndExit(uri: Uri) {
+    private fun sendIntentResultAndExit(input: Any) {
         // The user confirmed the choice
         var outputUri: Uri? = null
         if (intent.extras?.containsKey(MediaStore.EXTRA_OUTPUT) == true) {
@@ -1707,9 +1781,15 @@ open class CameraActivity : AppCompatActivity() {
 
         outputUri?.let {
             try {
-                contentResolver.openInputStream(uri).use { inputStream ->
-                    contentResolver.openOutputStream(it).use { outputStream ->
-                        inputStream!!.copyTo(outputStream!!)
+                contentResolver.openOutputStream(it, "wt").use { outputStream ->
+                    when (input) {
+                        is InputStream -> input.use {
+                            input.copyTo(outputStream!!)
+                        }
+                        is Uri -> contentResolver.openInputStream(input).use { inputStream ->
+                            inputStream!!.copyTo(outputStream!!)
+                        }
+                        else -> throw IllegalStateException("Input is not Uri or InputStream")
                     }
                 }
 
@@ -1719,9 +1799,25 @@ open class CameraActivity : AppCompatActivity() {
                 setResult(RESULT_CANCELED)
             }
         } ?: setResult(RESULT_OK, Intent().apply {
-            data = uri
-            flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-            putExtra(MediaStore.EXTRA_OUTPUT, uri)
+            when (input) {
+                is InputStream -> {
+                    // No output URI provided, so return the photo inline as a downscaled Bitmap.
+                    action = "inline-data"
+                    val transform = ExifUtils.getTransform(input)
+                    val bitmap = input.use { BitmapFactory.decodeStream(input) }
+                    val scaledAndRotatedBitmap = bitmap.scale(
+                        SINGLE_CAPTURE_INLINE_MAX_SIDE_LEN_PIXELS
+                    ).transform(transform)
+                    putExtra("data", scaledAndRotatedBitmap)
+                }
+                is Uri -> {
+                    // We saved the media (video), so return the URI that we saved.
+                    data = input
+                    flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    putExtra(MediaStore.EXTRA_OUTPUT, input)
+                }
+                else -> throw IllegalStateException("Input is not Uri or InputStream")
+            }
         })
 
         finish()
@@ -1742,7 +1838,11 @@ open class CameraActivity : AppCompatActivity() {
     }
 
     private fun startTimerAndRun(runnable: () -> Unit) {
-        if (sharedPreferences.timerMode == TimerMode.OFF || !canRestartCamera()) {
+        // Allow forcing timer if requested by the assistant
+        val timerModeSeconds =
+            assistantIntent?.timerDurationSeconds ?: sharedPreferences.timerMode.seconds
+
+        if (timerModeSeconds <= 0 || !canRestartCamera()) {
             runnable()
             return
         }
@@ -1752,7 +1852,7 @@ open class CameraActivity : AppCompatActivity() {
         countDownView.onPreviewAreaChanged(Rect().apply {
             viewFinder.getGlobalVisibleRect(this)
         })
-        countDownView.startCountDown(sharedPreferences.timerMode.seconds) {
+        countDownView.startCountDown(timerModeSeconds) {
             shutterButton.isEnabled = true
             runnable()
         }
@@ -1776,7 +1876,24 @@ open class CameraActivity : AppCompatActivity() {
             secondaryTopBarLayout.getChildAt(0)
         )?.let { layout ->
             for (child in layout.children) {
-                Button::class.safeCast(child)?.smoothRotate(compensationValue)
+                Button::class.safeCast(child)?.let {
+                    it.smoothRotate(compensationValue)
+                    ValueAnimator.ofFloat(
+                        (it.layoutParams as ConstraintLayout.LayoutParams).verticalBias,
+                        when (screenRotation) {
+                            Rotation.ROTATION_0 -> 0.0f
+                            Rotation.ROTATION_180 -> 1.0f
+                            Rotation.ROTATION_90,
+                            Rotation.ROTATION_270 -> 0.5f
+                        }
+                    ).apply {
+                        addUpdateListener { anim ->
+                            it.updateLayoutParams<ConstraintLayout.LayoutParams> {
+                                verticalBias = anim.animatedValue as Float
+                            }
+                        }
+                    }.start()
+                }
             }
         }
 
@@ -1800,6 +1917,16 @@ open class CameraActivity : AppCompatActivity() {
         private const val MSG_HIDE_FOCUS_RING = 1
         private const val MSG_HIDE_EXPOSURE_SLIDER = 2
         private const val MSG_ON_PINCH_TO_ZOOM = 3
+
+        private const val SINGLE_CAPTURE_PHOTO_BUFFER_INITIAL_SIZE_BYTES = 8 * 1024 * 1024 // 8 MiB
+
+        // We need to return something small enough so as not to overwhelm Binder. 1MB is the
+        // per-process limit across all transactions. Camera2 sets a max pixel count of 51200.
+        // We set a max side length of 256, for a max pixel count of 65536. Even at 4 bytes per
+        // pixel, this is only 256K, well within the limits. (Note: It's not clear if any modern
+        // app expects a photo to be returned inline, rather than providing an output URI.)
+        // https://developer.android.com/guide/components/activities/parcelables-and-bundles#sdbp
+        private const val SINGLE_CAPTURE_INLINE_MAX_SIDE_LEN_PIXELS = 256
 
         private val EXPOSURE_LEVEL_FORMATTER = DecimalFormat("+#;-#")
     }

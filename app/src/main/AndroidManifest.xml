@@ -20,6 +20,8 @@
         android:maxSdkVersion="28" />
 
     <queries>
+        <package android:name="com.google.android.apps.googlecamera.fishfood" />
+        <package android:name="com.google.android.googlequicksearchbox" />
         <package android:name="org.lineageos.aperture.auto_generated_rro_product__" />
         <package android:name="org.lineageos.aperture.auto_generated_rro_vendor__" />
     </queries>
@@ -48,6 +50,7 @@
             <intent-filter>
                 <action android:name="android.media.action.STILL_IMAGE_CAMERA" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.VOICE" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -79,6 +82,7 @@
             <intent-filter>
                 <action android:name="android.media.action.IMAGE_CAPTURE" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.VOICE" />
             </intent-filter>
         </activity>
 
@@ -100,10 +104,12 @@
             <intent-filter>
                 <action android:name="android.media.action.VIDEO_CAMERA" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.VOICE" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.media.action.VIDEO_CAPTURE" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.VOICE" />
             </intent-filter>
         </activity-alias>
 
