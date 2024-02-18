@@ -35,7 +35,6 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.OrientationEventListener
 import android.view.ScaleGestureDetector
-import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
@@ -255,22 +254,24 @@ open class CameraActivity : AppCompatActivity() {
             }
 
             override fun onFling(
-                e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float
+                e1: MotionEvent, e2: MotionEvent, velocityX: Float, velocityY: Float
             ): Boolean {
-                return e1?.let {
-                    if (!handler.hasMessages(MSG_ON_PINCH_TO_ZOOM) &&
-                        abs(it.x - e2.x) > 75 * resources.displayMetrics.density
-                    ) {
-                        if (e2.x > it.x) {
-                            // Left to right
-                            changeCameraMode(cameraMode.previous())
-                        } else {
-                            // Right to left
-                            changeCameraMode(cameraMode.next())
+                if (!handler.hasMessages(MSG_ON_PINCH_TO_ZOOM) &&
+                    abs(e1.x - e2.x) > 75 * resources.displayMetrics.density
+                ) {
+                    if (e2.x > e1.x) {
+                        // Left to right
+                        cameraMode.previous()?.let {
+                            changeCameraMode(it)
+                        }
+                    } else {
+                        // Right to left
+                        cameraMode.next()?.let {
+                            changeCameraMode(it)
                         }
                     }
-                    true
-                } ?: false
+                }
+                return true
             }
         })
     }
@@ -292,15 +293,15 @@ open class CameraActivity : AppCompatActivity() {
             super.handleMessage(msg)
             when (msg.what) {
                 MSG_HIDE_ZOOM_SLIDER -> {
-                    zoomLevel.visibility = View.GONE
+                    zoomLevel.isVisible = false
                 }
 
                 MSG_HIDE_FOCUS_RING -> {
-                    viewFinderFocus.visibility = View.GONE
+                    viewFinderFocus.isVisible = false
                 }
 
                 MSG_HIDE_EXPOSURE_SLIDER -> {
-                    exposureLevel.visibility = View.GONE
+                    exposureLevel.isVisible = false
                 }
             }
         }
@@ -448,12 +449,12 @@ open class CameraActivity : AppCompatActivity() {
 
                 PowerManager.THERMAL_STATUS_EMERGENCY -> {
                     showSnackBar(R.string.thermal_status_emergency)
-                    emergencyClose()
+                    finish()
                 }
 
                 PowerManager.THERMAL_STATUS_SHUTDOWN -> {
                     showSnackBar(R.string.thermal_status_shutdown)
-                    emergencyClose()
+                    finish()
                 }
             }
         }
@@ -607,13 +608,19 @@ open class CameraActivity : AppCompatActivity() {
                     this, getString(R.string.camcorder_unsupported_toast), Toast.LENGTH_LONG
                 ).show()
                 finish()
+                return
             }
             // Fallback to photo mode
             cameraMode = CameraMode.PHOTO
         }
 
         // Select a camera
-        camera = cameraManager.getCameraOfFacingOrFirstAvailable(initialCameraFacing, cameraMode)
+        camera = cameraManager.getCameraOfFacingOrFirstAvailable(
+            initialCameraFacing, cameraMode
+        ) ?: run {
+            noCamera()
+            return
+        }
 
         // Setup window insets
         ViewCompat.setOnApplyWindowInsetsListener(mainLayout) { _, windowInsets ->
@@ -671,7 +678,7 @@ open class CameraActivity : AppCompatActivity() {
         cameraController.tapToFocusState.observe(this) {
             when (it) {
                 CameraController.TAP_TO_FOCUS_STARTED -> {
-                    viewFinderFocus.visibility = View.VISIBLE
+                    viewFinderFocus.isVisible = true
                     handler.removeMessages(MSG_HIDE_FOCUS_RING)
                     ValueAnimator.ofInt(0.px, 8.px).apply {
                         addUpdateListener { anim ->
@@ -749,7 +756,7 @@ open class CameraActivity : AppCompatActivity() {
             }
 
             zoomLevel.progress = it.linearZoom
-            zoomLevel.visibility = View.VISIBLE
+            zoomLevel.isVisible = true
 
             handler.removeMessages(MSG_HIDE_ZOOM_SLIDER)
             handler.sendMessageDelayed(handler.obtainMessage(MSG_HIDE_ZOOM_SLIDER), 2000)
@@ -1506,6 +1513,9 @@ open class CameraActivity : AppCompatActivity() {
             )
 
             else -> camera
+        } ?: run {
+            noCamera()
+            return
         }
 
         // If the current camera doesn't support the selected camera mode
@@ -1513,7 +1523,10 @@ open class CameraActivity : AppCompatActivity() {
         if (!camera.supportsCameraMode(cameraMode)) {
             camera = cameraManager.getCameraOfFacingOrFirstAvailable(
                 camera.cameraFacing, cameraMode
-            )
+            ) ?: run {
+                noCamera()
+                return
+            }
         }
 
         // Fallback to ExtensionMode.NONE if necessary
@@ -1881,7 +1894,11 @@ open class CameraActivity : AppCompatActivity() {
 
         (flipCameraButton.drawable as AnimatedVectorDrawable).start()
 
-        camera = cameraManager.getNextCamera(camera, cameraMode)
+        camera = cameraManager.getNextCamera(camera, cameraMode) ?: run {
+            noCamera()
+            return
+        }
+
         sharedPreferences.lastCameraFacing = camera.cameraFacing
 
         bindCameraUseCases()
@@ -1957,21 +1974,20 @@ open class CameraActivity : AppCompatActivity() {
         }
 
         val currentVideoQuality = videoQuality
-        val newVideoQuality = supportedVideoQualities.toList().sortedWith { a, b ->
+
+        supportedVideoQualities.toList().sortedWith { a, b ->
             listOf(Quality.SD, Quality.HD, Quality.FHD, Quality.UHD).let {
                 it.indexOf(a) - it.indexOf(b)
             }
-        }.next(currentVideoQuality)
+        }.next(currentVideoQuality)?.takeUnless {
+            it == currentVideoQuality
+        }?.let {
+            videoQuality = it
 
-        if (newVideoQuality == currentVideoQuality) {
-            return
+            sharedPreferences.videoQuality = it
+
+            bindCameraUseCases()
         }
-
-        videoQuality = newVideoQuality
-
-        sharedPreferences.videoQuality = videoQuality
-
-        bindCameraUseCases()
     }
 
     private fun cycleVideoFrameRate() {
@@ -2000,29 +2016,29 @@ open class CameraActivity : AppCompatActivity() {
         }
 
         val currentVideoDynamicRange = videoDynamicRange
-        val newVideoDynamicRange =
-            supportedVideoDynamicRanges.toList().sorted().next(currentVideoDynamicRange)
 
-        if (newVideoDynamicRange == currentVideoDynamicRange) {
-            return
+        supportedVideoDynamicRanges.toList().sorted().next(currentVideoDynamicRange)?.takeUnless {
+            it == currentVideoDynamicRange
+        }?.let {
+            videoDynamicRange = it
+
+            sharedPreferences.videoDynamicRange = it
+
+            bindCameraUseCases()
         }
-
-        videoDynamicRange = newVideoDynamicRange
-
-        sharedPreferences.videoDynamicRange = videoDynamicRange
-
-        bindCameraUseCases()
     }
 
     /**
      * Set the specified grid mode, also updating the icon
      */
     private fun cycleGridMode() {
-        gridMode = gridMode.next()
+        gridMode.next()?.let {
+            gridMode = it
 
-        sharedPreferences.lastGridMode = gridMode
+            sharedPreferences.lastGridMode = it
 
-        changeGridMode(gridMode)
+            changeGridMode(gridMode)
+        }
     }
 
     private fun changeGridMode(gridMode: GridMode) {
@@ -2033,9 +2049,11 @@ open class CameraActivity : AppCompatActivity() {
      * Toggle timer mode
      */
     private fun toggleTimerMode() {
-        timerMode = timerMode.next()
+        timerMode.next()?.let {
+            timerMode = it
 
-        sharedPreferences.timerMode = timerMode
+            sharedPreferences.timerMode = it
+        }
     }
 
     /**
@@ -2052,18 +2070,19 @@ open class CameraActivity : AppCompatActivity() {
      */
     private fun cycleFlashMode() {
         val currentFlashMode = flashMode
-        val newFlashMode = when (cameraMode) {
+
+        when (cameraMode) {
             CameraMode.PHOTO -> FlashMode.PHOTO_ALLOWED_MODES.next(currentFlashMode)
             CameraMode.VIDEO -> FlashMode.VIDEO_ALLOWED_MODES.next(currentFlashMode)
             else -> FlashMode.OFF
-        }
+        }?.let {
+            changeFlashMode(it)
 
-        changeFlashMode(newFlashMode)
-
-        when (cameraMode) {
-            CameraMode.PHOTO -> sharedPreferences.photoFlashMode = newFlashMode
-            CameraMode.VIDEO -> sharedPreferences.videoFlashMode = newFlashMode
-            else -> {}
+            when (cameraMode) {
+                CameraMode.PHOTO -> sharedPreferences.photoFlashMode = it
+                CameraMode.VIDEO -> sharedPreferences.videoFlashMode = it
+                else -> {}
+            }
         }
 
         if (cameraMode == CameraMode.PHOTO && !sharedPreferences.forceTorchHelpShown &&
@@ -2126,17 +2145,16 @@ open class CameraActivity : AppCompatActivity() {
         }
 
         val currentExtensionMode = photoEffect
-        val newExtensionMode = camera.supportedExtensionModes.next(currentExtensionMode)
 
-        if (newExtensionMode == currentExtensionMode) {
-            return
+        camera.supportedExtensionModes.next(currentExtensionMode)?.takeUnless {
+            it == currentExtensionMode
+        }?.let {
+            photoEffect = it
+
+            sharedPreferences.photoEffect = it
+
+            bindCameraUseCases()
         }
-
-        photoEffect = newExtensionMode
-
-        sharedPreferences.photoEffect = photoEffect
-
-        bindCameraUseCases()
     }
 
     private fun setBrightScreen(brightScreen: Boolean) {
@@ -2174,6 +2192,7 @@ open class CameraActivity : AppCompatActivity() {
                         override fun onError(request: ImageRequest, result: ErrorResult) {
                             galleryButton.setPadding(15.px)
                             super.onError(request, result)
+                            Log.e(LOG_TAG, "Failed to load gallery button icon", result.throwable)
                         }
 
                         override fun onCancel(request: ImageRequest) {
@@ -2446,6 +2465,16 @@ open class CameraActivity : AppCompatActivity() {
     }
 
     /**
+     * Show a toast warning the user that no camera is available and close the activity.
+     */
+    private fun noCamera() {
+        Toast.makeText(
+            this, R.string.error_no_cameras_available, Toast.LENGTH_LONG
+        ).show()
+        finish()
+    }
+
+    /**
      * Zoom out by a power of 2.
      */
     private fun zoomOut() {
@@ -2469,20 +2498,6 @@ open class CameraActivity : AppCompatActivity() {
                 zoomGestureMutex.unlock()
             })
         }.start()
-    }
-
-    /**
-     * Use this function when the app must be closed due to emergency reasons.
-     * It will try to save whatever is going on and close the app.
-     */
-    private fun emergencyClose() {
-        // Stop the recording if there's an active one
-        if (cameraController.isRecording) {
-            videoRecording?.stop()
-        }
-
-        // Close the app
-        finish()
     }
 
     companion object {
