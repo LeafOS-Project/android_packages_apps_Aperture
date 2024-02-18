@@ -64,6 +64,7 @@
     <string name="photo_ffc_mirror_summary">Сохранять фото с фронтальной камеры в том виде, в котором они отображаются при предварительном просмотре</string>
     <string name="video_stabilization_title">Включить стабилизацию видео</string>
     <string name="video_stabilization_summary">Включить стабилизацию видео для уменьшения вибрации камеры во время записи (если доступно)</string>
+    <string name="video_mirror_mode_title">Зеркалирование видео</string>
     <string name="processing_title">Обработка</string>
     <string name="processing_info">В режиме фото, при использовании режима ZSL, учитываются только значения по умолчанию и выключено. Для режима видео учитываются только значения по умолчанию, выключено и быстро.</string>
     <string name="edge_mode_title">Резкость</string>
@@ -119,6 +120,7 @@
     <string name="error_do_not_disturb_mode_enabled">Включен режим Не беспокоить. Отключите его и снова откройте приложение.</string>
     <string name="error_unknown_recoverable">Обнаружена устранимая неизвестная ошибка. Пожалуйста, сообщите об этом разработчикам.</string>
     <string name="error_unknown_critical">Обнаружена неизвестная критическая ошибка. Пожалуйста, сообщите об этом разработчикам.</string>
+    <string name="error_no_cameras_available">На устройстве не обнаружено ни одной камеры, запуск приложения невозможен.</string>
     <string name="gesture_action_shutter">Затвор</string>
     <string name="gesture_action_zoom">Масштаб</string>
     <string name="gesture_action_volume">Громкость</string>
@@ -132,4 +134,7 @@
     <string name="camera_mode_photo">Фото</string>
     <string name="camera_mode_video">Видео</string>
     <string name="camera_mode_qr">Сканер</string>
+    <string name="video_mirror_mode_off">Выкл</string>
+    <string name="video_mirror_mode_on">Вкл</string>
+    <string name="video_mirror_mode_on_ffc_only">Только для фронтальной камеры</string>
 </resources>

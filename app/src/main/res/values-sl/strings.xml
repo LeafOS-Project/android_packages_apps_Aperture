@@ -31,7 +31,7 @@
     <string name="grid_on_goldenratio">MREŽA φ</string>
     <string name="mic_off">MIKROFON IZKLOPLJEN</string>
     <string name="mic_on">MIKROFON VKLOPLJEN</string>
-    <string name="settings">NASTAVITVE</string>
+    <string name="settings">NAST.</string>
     <string name="app_permissions_toast">Dovoljenje ni odobreno od uporabnika</string>
     <string name="camcorder_unsupported_toast">Noben fotoaparat ne podpira snemanja videoposnetkov.</string>
     <string name="qr_copy_description">Kopiraj v odložišče</string>
@@ -64,6 +64,7 @@
     <string name="photo_ffc_mirror_summary">Shrani fotografije sprednjega fotoaparata, kot se prikažejo na predogledu</string>
     <string name="video_stabilization_title">Omogoči stabilizacijo videa</string>
     <string name="video_stabilization_summary">Ko je na voljo, omogoči stabilizacijo videa za zmanjšanje vibracij fotoaparata med snemanjem</string>
+    <string name="video_mirror_mode_title">Omogoči zrcaljenje videoposnetka</string>
     <string name="processing_title">Obdelovanje</string>
     <string name="processing_info">V načinu fotografiranja, ko je uporabljen način ZSL, bodo upoštevane samo privzete in izklopljene vrednosti. Za način videoposnetka bodo upoštevane samo privzete, izklopljene in hitre vrednosti.</string>
     <string name="edge_mode_title">Ostrenje</string>
@@ -119,6 +120,7 @@
     <string name="error_do_not_disturb_mode_enabled">Način Ne moti je omogočen. Onemogočite ga in ponovno odprite aplikacijo.</string>
     <string name="error_unknown_recoverable">Obnovljiva neznana napaka je bila najdena. Sporočite to razvijalcem.</string>
     <string name="error_unknown_critical">Kritična neznana napaka je bila najdena. Sporočite to razvijalcem.</string>
+    <string name="error_no_cameras_available">Noben fotoaparat ni bil najden na napravi, ni mogoče zagnati aplikacije.</string>
     <string name="gesture_action_shutter">Sprožilec</string>
     <string name="gesture_action_zoom">Povečava</string>
     <string name="gesture_action_volume">Glasnost</string>
@@ -132,4 +134,7 @@
     <string name="camera_mode_photo">Foto</string>
     <string name="camera_mode_video">Video</string>
     <string name="camera_mode_qr">Branje</string>
+    <string name="video_mirror_mode_off">Izklopljeno</string>
+    <string name="video_mirror_mode_on">Vklopljeno</string>
+    <string name="video_mirror_mode_on_ffc_only">Samo sprednji fotoaparat</string>
 </resources>
