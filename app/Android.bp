@@ -25,6 +25,8 @@ android_app {
     required: [
         "ApertureFrameworksBaseOverlay",
         "ApertureLensLauncher",
+        "initial-package-stopped-states-org.leafos.aperture",
+        "preinstalled-packages-org.leafos.aperture",
     ],
 
     static_libs: [
@@ -47,6 +49,7 @@ android_app {
         "Aperture_androidx.media3_media3-exoplayer",
         "Aperture_androidx.media3_media3-ui",
         "Aperture_com.google.zxing_core",
+        "Aperture_io.github.zxing-cpp_android",
         "Aperture_io.coil-kt_coil",
         "Aperture_io.coil-kt_coil-video",
     ],
@@ -63,4 +66,20 @@ android_app {
         "--rename-manifest-package",
         "org.leafos.aperture",
     ],
+}
+
+prebuilt_etc {
+    name: "initial-package-stopped-states-org.leafos.aperture",
+    product_specific: true,
+    sub_dir: "sysconfig",
+    src: "initial-package-stopped-states-org.leafos.aperture.xml",
+    filename_from_src: true,
+}
+
+prebuilt_etc {
+    name: "preinstalled-packages-org.leafos.aperture",
+    product_specific: true,
+    sub_dir: "sysconfig",
+    src: "preinstalled-packages-org.leafos.aperture.xml",
+    filename_from_src: true,
 }
